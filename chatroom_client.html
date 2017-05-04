@@ -1,0 +1,286 @@
+﻿<!--
+	Alex Deuling 94357349
+	Jared Napoli	31666553
+	Noel Biscocho 10062289
+	Anthony Serrano 53934109
+-->
+<!doctype html>
+<html>
+<head>
+	<meta charset='UTF-8' />
+	<style>
+		input, textarea {margin:0px;padding:0px;background-color: #111111; color: white; border:1px solid #FFAA00}
+
+        #ip {line-height:20px}
+        #port {line-height:20px;}
+		#body {max-width:800px;margin:auto}
+		#log {width:75%;height:75px}
+        #scores {font-family: "Lucida Console";font-size:80%;width: 50%;height: 165px;background-color: #111111; color: white; border:1px solid #FFAA00; margin: 0 auto;text-align: left}
+		#message {width:75%;line-height:20px}
+		#startGame {display:none}
+		#canvas { width:450px; height:450px; border:1px solid #FFAA00}
+		html {text-align: center; background-color: black}
+		label {color: white}
+
+	</style>
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js"></script>
+	<script src="fancywebsocket.js"></script>
+	<script src="canvaspainter.js"></script>
+    <script src="randomname.js"></script>
+	<script>
+		var Server;
+		var d = new Date();
+		var n = d.getTime();
+		var yourName;
+		var colorMap = new Map();
+		var scoreMap = new Map();
+		var nameMap = new Map();
+		var scoreChanged = false;
+		colorMap["tokens"] = random_color();
+		colorMap["walls"] = "yellow";
+		colorMap["empty"] = "black";
+		var colorChangeCount = 0;
+
+		$(document).ready(function () { $("#yourName").val(random_name()); });
+
+		var eventQueue = [];
+
+		function log( text )
+		{
+			$log = $('#log');
+			//Add text to log
+			$log.append(($log.val()?"\n":'')+text);
+			//Autoscroll
+			$log[0].scrollTop = $log[0].scrollHeight - $log[0].clientHeight;
+		}
+
+		function logScores(text)
+		{
+		    var temp = "";
+		    var sorted = Object.keys(scoreMap).sort(function (a, b) { return scoreMap[b] - scoreMap[a] })
+		    for (var i = 0; i < sorted.length && i < 10; ++i) {
+		        temp += "<span style='color:" + colorMap[sorted[i]] + "'>" + sorted[i] + ":\t" + scoreMap[sorted[i]] + "</span><br>";
+		    }
+
+		    var temp2 = $("<span color='red'></span>").text(temp);
+		    //$scores = $('#scores');
+		    var txt3 = document.createElement("i");
+		    txt3.innerHTML = "jQuery!";
+		    document.getElementById("scores").innerHTML = temp;
+		    $scores.innerHTML(txt3.innerText);
+		}
+
+		function send( text )
+		{
+			Server.send( 'message', text );
+		}
+
+        function connect()
+        {
+            log('Connecting...');
+
+			Server = new FancyWebSocket('ws://' + document.getElementById('ip').value + ':' + document.getElementById('port').value);
+			yourName = document.getElementById('yourName').value;
+			document.getElementById("startGame").style.display = "inline";
+
+			setInterval(
+			function(){
+				d = new Date();
+				n = d.getTime();
+				send("p");
+
+			}, 2000);
+
+			setInterval(
+			function () {
+			    eventQueue.sort(function (a, b) { return a[0] - b[0]})
+			    if (eventQueue.length > 1)
+			        handleMessage(eventQueue.shift()[1]);
+			    while(eventQueue.length > 4)
+			        handleMessage(eventQueue.shift()[1]);
+			}, 110);
+
+
+			//variables defined in canvaspainter.js
+			//var canvas;
+			//var ctx;
+			//var w;
+			//var h;
+			//var cw;
+
+			canvas = document.getElementById("canvas");
+			ctx = canvas.getContext("2d");
+			w = $("#canvas").width();
+			h = $("#canvas").height();
+			cw = 10;
+
+			$('#message').keypress(function(e)
+			{
+				if ( e.keyCode == 13 && this.value )
+				{
+					log( 'You: ' + this.value );
+					send( 'm' + this.value );
+
+					$(this).val('');
+				}
+			});
+
+
+			$(document).keydown(function(e){
+				var key = e.which;
+				//We will add another clause to prevent reverse gear
+				if(key == "37") send("da");
+				else if(key == "38") send("dw");
+				else if(key == "39") send("dd");
+				else if(key == "40") send("ds");
+				//The snake is now keyboard controllable
+			})
+
+
+
+			//Let the user know we're connected
+			Server.bind('open', function()
+			{
+                document.getElementById("cntBtn").disabled = true;
+				log( "Connected." );
+				send("n" + yourName);
+				clear_screen(colorMap["empty"]);
+			});
+
+			//OH NOES! Disconnection occurred.
+			Server.bind('close', function( data )
+			{
+                document.getElementById("cntBtn").disabled = false;
+				log( "Disconnected." );
+			});
+
+			//Log any messages sent from server
+			Server.bind('message', function( payload )
+			{
+			    if (payload[0] == 'I')
+			    {
+			        handleMessage(payload.substring(2, payload.length));
+			    }
+			    if (payload[0] == 'B')
+			    {
+			        payload = payload.substring(1, payload.length);
+			        temp = payload.split("#");
+			        eventQueue.push(temp);
+			    }
+			});
+
+			function handleMessage(payload) {
+			    var changes = payload.split('$');
+			    for (var i = 0; i < changes.length; ++i) {
+			        var temp = changes[i].split('@');
+			        switch (temp[0]) {
+			            case 'W':
+			                var coord = temp[1].split(',');
+			                paint_color(coord[0], coord[1], colorMap["walls"], colorMap["walls"]);
+			                break;
+			            case 'T':
+			                var coord = temp[1].split(',');
+			                paint_color(coord[0], coord[1], colorMap["tokens"], colorMap["empty"]);
+			                break;
+			            case 'E':
+			                var coord = temp[1].split(',');
+			                paint_color(coord[0], coord[1], colorMap["empty"], colorMap["empty"]);
+			                break;
+			            case 'D':
+			                colorMap.delete(temp[1]);
+			                break;
+			            case 'DW':
+			                change_width(temp[1] * 10);
+			                break;
+			            case 'DH':
+			                change_height(temp[1] * 10);
+			                break;
+			            case 'S':
+			                var info = temp[1].split(',');
+			                scoreMap[nameMap[info[0]]] = info[1];
+			                scoreChanged = true;
+			                break;
+			            case 'NP':
+			                var info = temp[1].split(',');
+			                nameMap[info[1]] = info[0];
+			                scoreMap[info[0]] = 0;
+			                colorMap[info[0]] = random_color();
+			                scoreChanged = true;
+			                break;
+			            case 'RS':
+			                clear_screen(colorMap["empty"]);
+			                document.getElementById("startGame").disabled = false;
+                      eventQueue.clear();
+			                break;
+			            case 'P':
+			                var teee = new Date();
+			                var ntp = ((teee.getTime() - n) - temp[1]) / 2;
+			                $('#latency').html(Math.abs(ntp));
+
+			                break;
+			            case 'M':
+			                log (temp[1]);
+			                break;
+			            default:
+			                if (isNaN(temp[0]))
+			                    log("Error: " + changes[i]);
+			                else
+			                {
+			                    var coord = temp[1].split(',');
+			                    paint_color(coord[0], coord[1], colorMap[nameMap[temp[0]]], colorMap[nameMap[temp[0]]]);
+			                }
+			        }
+
+			    }
+			    if (++colorChangeCount >= 5) {
+			        colorChangeCount = 0;
+			        colorMap["tokens"] = random_color();
+			    }
+
+			    if(scoreChanged)
+			    {
+			        scoreChanged = false;
+			        logScores();
+			    }
+			}
+
+			Server.connect();
+        }
+
+		function startGame()
+        {
+        	document.getElementById("startGame").disabled = true;
+        	send("s");
+        	scoreMap.clear();
+        }
+
+
+	</script>
+</head>
+
+<body>
+	<div id='body'>
+        <label>Server ip: </label><input type='text' id='ip' name='ip' value = '127.0.0.1'>
+        <label>Server port: </label><input type='text' id='port' name='port' value = '100'>
+        <label>Your Name: </label><input type='text' id='yourName' name='yourName'>
+        <button type="button" id='cntBtn' onclick="connect();">Connect</button>
+        <button type="button" id='startGame' onclick="startGame();">Ready</button>
+
+		<br>
+
+
+
+		<canvas id="canvas" name='canvas'></canvas><br>
+        <div id='scores' name='scores'></div>
+        <!--<textarea id='scores' name='scores' readonly='readonly'></textarea><br />-->
+
+		<div>
+		<label>Latency:</label>&nbsp;<label id='latency'></label>
+		</div>
+
+		<textarea id='log' name='log' readonly='readonly'></textarea><br/>
+		<input type='text' id='message' name='message' />
+	</div>
+</body>
+
+</html>
